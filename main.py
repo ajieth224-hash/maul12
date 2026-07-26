@@ -7,7 +7,22 @@ import logging
 import random
 import os
 
-BOT_URL = # your bot's token here
+# --- TAMBAHAN UNTUK RENDER.COM (Web Server) ---
+from flask import Flask
+from threading import Thread
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Top.gg Autovoter is Running!"
+
+def run_server():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+# ----------------------------------------------
+
+BOT_URL = "" # your bot's token/url here
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,6 +30,8 @@ logging.basicConfig(
 )
 
 def get_tokens(file="tokens.txt"):
+    if not os.path.exists(file):
+        return []
     with open(file, "r") as f:
         return [line.strip() for line in f if line.strip()]
 
@@ -24,6 +41,8 @@ def save_retry_token(token):
 
 def login_with_token(driver, token):
     logging.info("Logging token...")
+    # NOTE: Logging in with just a token via script injection is usually done with execute_script, 
+    # but I am leaving your original code intact as requested.
     driver.get("https://discord.com/login")
     time.sleep(3)
 
@@ -50,14 +69,13 @@ def handle_authorization(driver, wait):
     logging.info("Waiting for manual authorization (up to 30 seconds)...")
 
     for _ in range(30):
-        if "top.gg/bot" in driver.current_uri:
+        if "top.gg/bot" in driver.current_url: # Diperbaiki dari current_uri menjadi current_url
             logging.info("Manual authorization detected. Continuing...")
             return True
         time.sleep(1)
 
     logging.error("Manual authorization not detected. Step failed.")
     return False
-
 
 def scroll_modal_to_bottom(driver):
     script = """
@@ -80,6 +98,14 @@ def zoom_and_scroll_to_authorize(driver):
 def vote_with_token(token):
     options = uc.ChromeOptions()
     options.add_argument("--window-size=1920,1080")
+    
+    # --- TAMBAHAN UNTUK RENDER.COM (Mode Headless) ---
+    # Render tidak memiliki layar, jadi Chrome harus berjalan di belakang layar
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    # -------------------------------------------------
+
     driver = uc.Chrome(options=options)
     wait = WebDriverWait(driver, 20)
 
@@ -120,8 +146,13 @@ def vote_with_token(token):
         ))
         vote_link.click()
         time.sleep(3)
+        
+        # Syntax error bawaan "))" dihapus dan diubah menjadi klik tombol final
+        vote_button = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//button[contains(text(), 'Vote')]")
         ))
         vote_button.click()
+        
         logging.info("Voted Successfully!")
         return True
 
@@ -143,19 +174,39 @@ def process_token(token, retry=False):
             save_retry_token(token)
 
 def main():
-    if os.path.exists("retry.txt"):
-        os.remove("retry.txt")
+    # --- UBAH MENJADI MULTI-VOTE LOOPING (Tiap 12 Jam) ---
+    while True:
+        logging.info("=== MEMULAI SIKLUS VOTE BARU ===")
+        if os.path.exists("retry.txt"):
+            os.remove("retry.txt")
 
-    tokens = get_tokens()
-    for token in tokens:
-        process_token(token)
-        time.sleep(random.uniform(2, 3))
+        tokens = get_tokens()
+        if not tokens:
+            logging.warning("Tidak ada token di tokens.txt!")
+        
+        for token in tokens:
+            process_token(token)
+            time.sleep(random.uniform(2, 3))
 
-    if os.path.exists("retry.txt"):
-        logging.info("Processing retry tokens...")
-        retry_tokens = get_tokens("retry.txt")
-        os.remove("retry.txt")
+        if os.path.exists("retry.txt"):
+            logging.info("Processing retry tokens...")
+            retry_tokens = get_tokens("retry.txt")
+            for retry_tok in retry_tokens:
+                process_token(retry_tok, retry=True)
+            os.remove("retry.txt")
+            
+        logging.info("=== SIKLUS VOTE SELESAI ===")
+        # Jeda 12 jam (43200 detik) + 1 menit sebelum voting ulang
+        wait_seconds = 43260
+        logging.info(f"Menunggu {wait_seconds // 3600} jam untuk siklus vote berikutnya...")
+        time.sleep(wait_seconds)
+    # -----------------------------------------------------
 
 if __name__ == "__main__":
-
+    # --- TAMBAHAN UNTUK RENDER.COM (Jalankan Web Server) ---
+    server_thread = Thread(target=run_server)
+    server_thread.daemon = True
+    server_thread.start()
+    # -------------------------------------------------------
+    
     main()
