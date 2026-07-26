@@ -33,13 +33,11 @@ def get_tokens(file="tokens.txt"):
     with open(file, "r") as f:
         return [line.strip() for line in f if line.strip()]
 
-# --- FUNGSI BARU: Mengambil URL dari bots.txt ---
 def get_bot_urls(file="bots.txt"):
     if not os.path.exists(file):
         return []
     with open(file, "r") as f:
         return [line.strip() for line in f if line.strip()]
-# ------------------------------------------------
 
 def save_retry_token(token):
     with open("retry.txt", "a") as f:
@@ -47,6 +45,7 @@ def save_retry_token(token):
 
 def login_with_token(driver, token):
     logging.info("Logging token...")
+    # Anda bisa memodifikasi bagian ini jika ingin injeksi token via LocalStorage
     driver.get("https://discord.com/login")
     time.sleep(3)
 
@@ -103,19 +102,23 @@ def vote_with_token(token, bot_url):
     options = uc.ChromeOptions()
     options.add_argument("--window-size=1920,1080")
     
-    # --- TAMBAHAN UNTUK RENDER.COM (Mode Headless) ---
+    # --- PENGATURAN KHUSUS DOCKER & RENDER.COM ---
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    # -------------------------------------------------
-
-    driver = uc.Chrome(options=options)
+    
+    # Menunjuk langsung ke aplikasi Chromium bawaan OS
+    options.binary_location = "/usr/bin/chromium"
+    
+    # Memaksa uc.Chrome menggunakan driver bawaan OS agar versinya tidak bentrok
+    driver = uc.Chrome(options=options, driver_executable_path="/usr/bin/chromedriver")
+    # ---------------------------------------------
+    
     wait = WebDriverWait(driver, 20)
 
     try:
         login_with_token(driver, token)
 
-        # Mengunjungi URL bot yang dibaca dari bots.txt
         driver.get(bot_url)
         time.sleep(3)
 
@@ -167,7 +170,10 @@ def vote_with_token(token, bot_url):
         driver.quit()
 
 def process_token(token, bot_url, retry=False):
-    logging.info(f"{'Retrying' if retry else 'Voting with'} token: {token[:20]}... untuk {bot_url}")
+    # Menyembunyikan sebagian token di log agar aman
+    safe_token = f"{token[:15]}..." if len(token) > 15 else token
+    logging.info(f"{'Retrying' if retry else 'Voting with'} token: {safe_token} untuk {bot_url}")
+    
     success = vote_with_token(token, bot_url)
     if not success:
         logging.warning(f"Retrying token...")
@@ -180,14 +186,12 @@ def main():
     while True:
         logging.info("=== MEMULAI SIKLUS VOTE BARU ===")
         
-        # Baca daftar Bot dari bots.txt
         bot_urls = get_bot_urls()
         if not bot_urls:
             logging.error("File bots.txt kosong atau tidak ditemukan! Menunggu 1 menit...")
             time.sleep(60)
             continue
             
-        # Baca daftar Token dari tokens.txt
         tokens = get_tokens()
         if not tokens:
             logging.warning("Tidak ada token di tokens.txt!")
@@ -195,31 +199,33 @@ def main():
         if os.path.exists("retry.txt"):
             os.remove("retry.txt")
 
-        # Looping pertama: Memproses setiap Bot URL dari bots.txt
+        # Looping 1: Eksekusi setiap Bot URL
         for bot_url in bot_urls:
             logging.info(f"\n---> MEMPROSES BOT: {bot_url} <---")
             
-            # Looping kedua: Memutar semua token untuk Bot URL saat ini
+            # Looping 2: Gunakan semua token untuk Bot tersebut
             for token in tokens:
                 process_token(token, bot_url)
                 time.sleep(random.uniform(2, 3))
 
+        # Coba ulang token yang gagal
         if os.path.exists("retry.txt"):
             logging.info("\nProcessing retry tokens...")
             retry_tokens = get_tokens("retry.txt")
             
-            # Jika ada token gagal, coba ulang pada bot pertama di list
             for retry_tok in retry_tokens:
                 process_token(retry_tok, bot_urls[0], retry=True)
             os.remove("retry.txt")
             
         logging.info("\n=== SIKLUS VOTE UNTUK SEMUA BOT SELESAI ===")
-        # Jeda 12 Jam + 1 Menit
+        
+        # Jeda 12 Jam + 1 Menit untuk cooldown Top.gg
         wait_seconds = 43260
         logging.info(f"Menunggu {wait_seconds // 3600} jam untuk siklus vote berikutnya...")
         time.sleep(wait_seconds)
 
 if __name__ == "__main__":
+    # Jalankan server palsu agar Render.com tidak mematikan aplikasi
     server_thread = Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
