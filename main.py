@@ -45,9 +45,27 @@ def save_retry_token(token):
 
 def login_with_token(driver, token):
     logging.info("Logging token...")
-    # Anda bisa memodifikasi bagian ini jika ingin injeksi token via LocalStorage
     driver.get("https://discord.com/login")
     time.sleep(3)
+    
+    # --- SCRIPT UNTUK INJEKSI TOKEN KE BROWSER ---
+    script = f"""
+    let token = "{token}";
+    let iframe = document.createElement('iframe');
+    document.body.appendChild(iframe);
+    iframe.contentWindow.localStorage.setItem('token', '"' + token + '"');
+    window.localStorage.setItem('token', '"' + token + '"');
+    """
+    
+    try:
+        driver.execute_script(script)
+        time.sleep(1)
+        driver.refresh() # Refresh halaman agar sesi login aktif
+        time.sleep(5)    # Tunggu sebentar sampai Discord memuat beranda
+        logging.info("Token berhasil disuntikkan!")
+    except Exception as e:
+        logging.error(f"Gagal menyuntikkan token: {e}")
+    # ---------------------------------------------
 
 def handle_authorization(driver, wait):
     zoom_and_scroll_to_authorize(driver)
@@ -110,7 +128,7 @@ def vote_with_token(token, bot_url):
     # Menunjuk langsung ke aplikasi Chromium bawaan OS
     options.binary_location = "/usr/bin/chromium"
     
-    # Memaksa uc.Chrome menggunakan driver bawaan OS agar versinya tidak bentrok
+    # Memaksa uc.Chrome menggunakan driver bawaan OS
     driver = uc.Chrome(options=options, driver_executable_path="/usr/bin/chromedriver")
     # ---------------------------------------------
     
