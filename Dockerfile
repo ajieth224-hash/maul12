@@ -1,15 +1,10 @@
 # Menggunakan Python versi 3.11
 FROM python:3.11-slim
 
-# Menginstal dependensi sistem dan mengunduh Google Chrome langsung
+# Menginstal Chromium dan Chromium-Driver bawaan OS yang dijamin cocok versinya
 RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    unzip \
-    curl \
-    && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && apt-get install -y ./google-chrome-stable_current_amd64.deb \
-    && rm google-chrome-stable_current_amd64.deb \
+    chromium \
+    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
 # Menyiapkan folder kerja di dalam server
