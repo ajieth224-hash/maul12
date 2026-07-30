@@ -118,20 +118,26 @@ async function startVote(token, cookies, accountIndex) {
         });
         
         const page = await browser.newPage();
+        
+        // === PERBAIKAN TIMEOUT ===
+        // Menggunakan fitur resmi Puppeteer. Jika ada proses yang memakan waktu lebih dari 90 detik,
+        // Puppeteer akan otomatis membatalkan proses dan menutup browser dengan aman.
+        page.setDefaultTimeout(90000); 
+        page.setDefaultNavigationTimeout(90000);
+        // =========================
+
         await page.setViewport({ width: 1920, height: 1080 });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        // === FITUR BARU: BLOKIR IKLAN & GAMBAR (HEMAT RAM) ===
         await page.setRequestInterception(true);
         page.on('request', (request) => {
             const blockedTypes = ['image', 'media', 'font'];
             if (blockedTypes.includes(request.resourceType())) {
-                request.abort(); // Jangan muat gambar dan video iklan
+                request.abort(); 
             } else {
                 request.continue();
             }
         });
-        // ====================================================
 
         if (cookies && cookies.length > 0) {
             await page.setCookie(...cookies);
@@ -146,7 +152,7 @@ async function startVote(token, cookies, accountIndex) {
         }, token);
 
         logInfo("Membuka Discord App untuk verifikasi...");
-        await page.goto("https://discord.com/channels/@me", { waitUntil: "domcontentloaded", timeout: 60000 }).catch(()=>{});
+        await page.goto("https://discord.com/channels/@me", { waitUntil: "domcontentloaded" });
         await delay(4000);
 
         await page.evaluate((t) => {
@@ -157,7 +163,7 @@ async function startVote(token, cookies, accountIndex) {
         logInfo("[SUKSES] Akun Discord berhasil teridentifikasi!");
 
         logInfo("Menuju gerbang Login Top.gg...");
-        await page.goto("https://top.gg/login", { waitUntil: "domcontentloaded", timeout: 60000 }).catch(()=>{});
+        await page.goto("https://top.gg/login", { waitUntil: "domcontentloaded" });
         await delay(6000); 
         await solveTurnstile(page);
 
@@ -200,7 +206,7 @@ async function startVote(token, cookies, accountIndex) {
 
             if (authClicked) {
                 logInfo("Tombol Otorisasi diklik! Menunggu dialihkan...");
-                await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(()=>{});
+                await page.waitForNavigation({ waitUntil: "domcontentloaded" }).catch(()=>{});
                 await delay(4000);
             } else {
                 logInfo("Gagal menemukan Otorisasi. Melanjutkan...");
@@ -210,7 +216,7 @@ async function startVote(token, cookies, accountIndex) {
         }
 
         logInfo("Membuka halaman Vote...");
-        await page.goto(`https://top.gg/bot/${BOT_ID}/vote`, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(()=>{});
+        await page.goto(`https://top.gg/bot/${BOT_ID}/vote`, { waitUntil: "domcontentloaded" });
         
         logInfo("⏳ Menunggu delay 15 detik...");
         await delay(15000);
@@ -278,10 +284,10 @@ async function startVote(token, cookies, accountIndex) {
         return voteResult; 
 
     } catch (err) {
-        logInfo(`Terjadi kesalahan sistem: ${err.message}`);
+        logInfo(`Terjadi hambatan sistem (Mungkin Timeout): ${err.message}`);
         return "error";
     } finally {
-        if (browser) await browser.close();
+        if (browser) await browser.close(); // Browser ditutup bersih di sini
     }
 }
 
@@ -309,16 +315,8 @@ async function runContinuous() {
             if (now >= nextVoteTime) {
                 isProcessing = true;
                 
-                // --- PENANGANAN TIMEOUT LEVEL SISTEM ---
-                // Jika StartVote macet (lebih dari 2 menit), sistem akan memotongnya dan lanjut ke akun berikutnya
-                const result = await Promise.race([
-                    startVote(acc.token, acc.cookie, acc.index),
-                    new Promise((resolve) => setTimeout(() => {
-                        logInfo(`[WARNING] Proses akun ini memakan waktu terlalu lama. Dipotong secara paksa.`);
-                        resolve("timeout");
-                    }, 120000)) // Timeout 2 Menit (120000 ms)
-                ]);
-                // ---------------------------------------
+                // Cukup jalankan fungsi secara normal, jika macet akan ditangani otomatis oleh batas timeout 90 detik bawaan Puppeteer
+                const result = await startVote(acc.token, acc.cookie, acc.index);
                 
                 let newTime = 0;
                 if (result === "voted" || result === "already") {
