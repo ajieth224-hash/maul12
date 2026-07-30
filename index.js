@@ -3,7 +3,6 @@ const axios = require('axios');
 const fs = require('fs');
 const express = require('express'); 
 
-// === SETUP WEB SERVER (WAJIB UNTUK RENDER.COM) ===
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -14,9 +13,7 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
     console.log(`[SYSTEM] Web server berjalan di port ${PORT}`);
 });
-// =================================================
 
-// === SISTEM DATABASE JADWAL LOKAL ===
 const SCHEDULE_FILE = 'schedule.json';
 
 function loadSchedule() {
@@ -34,7 +31,6 @@ function loadSchedule() {
 function saveSchedule(schedule) {
     fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(schedule, null, 2), 'utf8');
 }
-// =================================================
 
 const listToken = fs.existsSync('tokens.txt') 
     ? fs.readFileSync('tokens.txt', 'utf8').split('\n').map(t => t.trim()).filter(Boolean) 
@@ -45,7 +41,7 @@ const listCookie = fs.existsSync('cookies.txt')
     : [];
 
 const BOT_ID = '519287796549156864'; 
-const YESCAPTCHA_TOKEN = '4833cd9be06f143f76fc531a5312404bbdb09dc0100535'; 
+const YESCAPTCHA_TOKEN = 'GANTI_DENGAN_YESCAPTCHA_TOKEN_ANDA'; 
 
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
@@ -54,22 +50,23 @@ async function logInfo(msg) { console.log(`[Bot] ${msg}`); }
 async function solveTurnstile(page) {
     if (!YESCAPTCHA_TOKEN || YESCAPTCHA_TOKEN.includes('TOKEN_') || YESCAPTCHA_TOKEN.includes('GANTI_')) return;
     
-    const siteKey = await page.evaluate(() => {
-        const cfDiv = document.querySelector('.cf-turnstile');
-        if (cfDiv) return cfDiv.getAttribute('data-sitekey');
-        const iframe = document.querySelector('iframe[src*="turnstile"]');
-        if (iframe) {
-            const match = iframe.src.match(/sitekey=([^&]+)/);
-            if (match) return match[1];
-        }
-        return null;
-    });
-
-    if (!siteKey) return; 
-    
-    logInfo("Mencari Cloudflare Turnstile/Captcha... Ditemukan!");
-    logInfo(`Meminta bantuan YesCaptcha...`);
     try {
+        const siteKey = await page.evaluate(() => {
+            const cfDiv = document.querySelector('.cf-turnstile');
+            if (cfDiv) return cfDiv.getAttribute('data-sitekey');
+            const iframe = document.querySelector('iframe[src*="turnstile"]');
+            if (iframe) {
+                const match = iframe.src.match(/sitekey=([^&]+)/);
+                if (match) return match[1];
+            }
+            return null;
+        });
+
+        if (!siteKey) return; 
+        
+        logInfo("Mencari Cloudflare Turnstile/Captcha... Ditemukan!");
+        logInfo(`Meminta bantuan YesCaptcha...`);
+        
         const { data: createData } = await axios.post('https://api.yescaptcha.com/createTask', {
             clientKey: YESCAPTCHA_TOKEN,
             task: { type: "TurnstileTaskProxyless", websiteURL: await page.url(), websiteKey: siteKey }
@@ -123,6 +120,18 @@ async function startVote(token, cookies, accountIndex) {
         const page = await browser.newPage();
         await page.setViewport({ width: 1920, height: 1080 });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+        // === FITUR BARU: BLOKIR IKLAN & GAMBAR (HEMAT RAM) ===
+        await page.setRequestInterception(true);
+        page.on('request', (request) => {
+            const blockedTypes = ['image', 'media', 'font'];
+            if (blockedTypes.includes(request.resourceType())) {
+                request.abort(); // Jangan muat gambar dan video iklan
+            } else {
+                request.continue();
+            }
+        });
+        // ====================================================
 
         if (cookies && cookies.length > 0) {
             await page.setCookie(...cookies);
@@ -236,7 +245,7 @@ async function startVote(token, cookies, accountIndex) {
         });
 
         if (voteResult === "clicked") {
-            logInfo("Tombol Vote ditekan! Menunggu server Top.gg (8 detik)...");
+            logInfo("Tombol Vote ditekan! Menunggu konfirmasi server Top.gg (8 detik)...");
             await delay(8000); 
             
             const verifySuccess = await page.evaluate(() => {
@@ -283,45 +292,43 @@ async function runContinuous() {
         let formattedCookie = [];
         if (listCookie[i]) {
             try { formattedCookie = JSON.parse(listCookie[i]); } 
-            catch (e) { logInfo(`[WARNING] Cookie baris ke-${i+1} tidak valid.`); }
+            catch (e) {}
         }
-        return {
-            token: token,
-            cookie: formattedCookie,
-            index: i
-        };
+        return { token: token, cookie: formattedCookie, index: i };
     });
 
     while (true) {
         let isProcessing = false;
         const now = Date.now();
-        
-        // Selalu muat ulang jadwal dari file json setiap putaran
         const schedule = loadSchedule();
 
         for (let i = 0; i < accounts.length; i++) {
             const acc = accounts[i];
-            
-            // Cek jadwal di database lokal, jika tidak ada, default ke 0 (langsung eksekusi)
             const nextVoteTime = schedule[acc.index] || 0;
             
             if (now >= nextVoteTime) {
                 isProcessing = true;
                 
-                const result = await startVote(acc.token, acc.cookie, acc.index);
+                // --- PENANGANAN TIMEOUT LEVEL SISTEM ---
+                // Jika StartVote macet (lebih dari 2 menit), sistem akan memotongnya dan lanjut ke akun berikutnya
+                const result = await Promise.race([
+                    startVote(acc.token, acc.cookie, acc.index),
+                    new Promise((resolve) => setTimeout(() => {
+                        logInfo(`[WARNING] Proses akun ini memakan waktu terlalu lama. Dipotong secara paksa.`);
+                        resolve("timeout");
+                    }, 120000)) // Timeout 2 Menit (120000 ms)
+                ]);
+                // ---------------------------------------
                 
                 let newTime = 0;
                 if (result === "voted" || result === "already") {
-                    // Setel ke 12 JAM dari waktu sekarang
                     newTime = Date.now() + (12 * 60 * 60 * 1000) + (2 * 60 * 1000); 
                     logInfo(`[JADWAL] Disimpan: Akun ke-${acc.index + 1} Selesai. Menunggu 12 jam.\n`);
                 } else {
-                    // Setel ke 5 MENIT dari waktu sekarang jika gagal
                     newTime = Date.now() + (5 * 60 * 1000);
-                    logInfo(`[JADWAL] Disimpan: Akun ke-${acc.index + 1} Gagal. Akan mencoba kembali dalam 5 menit.\n`);
+                    logInfo(`[JADWAL] Disimpan: Akun ke-${acc.index + 1} Gagal. Mencoba kembali dalam 5 menit.\n`);
                 }
                 
-                // Simpan jadwal baru langsung ke file schedule.json
                 schedule[acc.index] = newTime;
                 saveSchedule(schedule);
                 
@@ -330,7 +337,6 @@ async function runContinuous() {
         }
 
         if (!isProcessing) {
-            // Jika semua akun sedang dalam masa tunggu, bot akan beristirahat selama 1 menit lalu mengecek file jadwal lagi.
             await delay(60000); 
         }
     }
