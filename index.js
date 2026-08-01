@@ -159,7 +159,7 @@ async function startVote(token, cookies, accountIndex) {
         logInfo("Membuka halaman Vote...");
         await page.goto(`https://top.gg/bot/${BOT_ID}/vote`, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(()=>{});
         
-        logInfo("⏳ Jeda 15 detik...");
+        logInfo("⏳ Jeda awal 15 detik...");
         await delay(15000);
         await solveTurnstile(page);
         
@@ -174,40 +174,47 @@ async function startVote(token, cookies, accountIndex) {
         });
         await delay(3000); 
 
-        // === TAMBAHAN KODE DEBUG UNTUK CEK CLOUDFLARE ===
-        const pageTitle = await page.title();
-        const pageTextExcerpt = await page.evaluate(() => document.body.innerText.substring(0, 150).replace(/\n/g, ' '));
-        logInfo(`[DEBUG] Judul Halaman: ${pageTitle}`);
-        logInfo(`[DEBUG] Teks di layar: ${pageTextExcerpt}`);
-        // === BATAS TAMBAHAN ===
+        // === SMART WAIT: LOOP PENCARIAN TOMBOL VOTE ===
+        logInfo("Mencari tombol Vote (Menunggu iklan hitung mundur selesai jika ada)...");
+        let btnData = { status: "not_found" };
 
-        const btnData = await page.evaluate(() => {
-            const bodyText = document.body.innerText.toLowerCase();
-            if (bodyText.includes("you have already voted") || bodyText.includes("already voted")) return { status: "already" };
-            
-            const btns = Array.from(document.querySelectorAll("button, a, [role='button']"));
-            const voteBtn = btns.find(el => {
-                const text = (el.innerText || '').trim().toLowerCase();
-                return text === "vote" || text === "vote!" || text === "vote for bot";
+        for (let attempt = 1; attempt <= 8; attempt++) {
+            btnData = await page.evaluate(() => {
+                const bodyText = document.body.innerText.toLowerCase();
+                if (bodyText.includes("you have already voted") || bodyText.includes("already voted")) return { status: "already" };
+                
+                const btns = Array.from(document.querySelectorAll("button, a, [role='button']"));
+                const voteBtn = btns.find(el => {
+                    const text = (el.innerText || '').trim().toLowerCase();
+                    return text === "vote" || text === "vote!" || text === "vote for bot";
+                });
+
+                if (voteBtn && !voteBtn.disabled) { 
+                    voteBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
+                    const rect = voteBtn.getBoundingClientRect();
+                    return {
+                        status: "found",
+                        x: rect.x + (rect.width / 2),
+                        y: rect.y + (rect.height / 2)
+                    };
+                }
+                return { status: "not_found" };
             });
 
-            if (voteBtn && !voteBtn.disabled) { 
-                voteBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
-                const rect = voteBtn.getBoundingClientRect();
-                return {
-                    status: "found",
-                    x: rect.x + (rect.width / 2),
-                    y: rect.y + (rect.height / 2)
-                };
+            if (btnData.status !== "not_found") {
+                break; // Keluar dari loop jika tombol ditemukan atau akun sudah vote
             }
-            return { status: "not_found" };
-        });
+
+            logInfo(`[TUNGGU] Iklan masih berjalan, cek lagi dalam 5 detik... (Percobaan ${attempt}/8)`);
+            await delay(5000); // Jeda 5 detik sebelum cek ulang layar
+        }
+        // === BATAS SMART WAIT ===
 
         if (btnData.status === "found") {
-            logInfo("Melakukan klik mouse nyata...");
+            logInfo("Tombol ditemukan! Melakukan klik mouse nyata...");
             await delay(1500); 
             await page.mouse.click(btnData.x, btnData.y); 
-            await delay(8000); 
+            await delay(8000); // Tunggu respons server Top.gg setelah klik
 
             const isSuccess = await page.evaluate(() => {
                 const text = document.body.innerText.toLowerCase();
@@ -217,13 +224,13 @@ async function startVote(token, cookies, accountIndex) {
             if (isSuccess) {
                 logInfo(`[SUKSES] BERHASIL VOTE! 🎉`);
             } else {
-                logInfo(`[GAGAL] Server menolak vote. (Kemungkinan Anti-Bot)`);
+                logInfo(`[GAGAL] Tombol diklik tapi server menolak vote. (Kemungkinan Anti-Bot)`);
             }
 
         } else if (btnData.status === "already") {
             logInfo(`[INFO] Sudah pernah vote.`);
         } else {
-            logInfo(`[GAGAL] Tombol tidak ditemukan.`);
+            logInfo(`[GAGAL] Waktu habis. Tombol Vote tidak muncul setelah ditunggu 40 detik.`);
         }
 
     } catch (err) {
