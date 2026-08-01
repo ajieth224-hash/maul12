@@ -90,7 +90,7 @@ async function startVote(token, cookies, accountIndex) {
                 '--disable-dev-shm-usage', 
                 '--disable-gpu', 
                 '--ignore-certificate-errors',
-                '--disable-blink-features=AutomationControlled' // Ekstra pertahanan stealth
+                '--disable-blink-features=AutomationControlled'
             ]
         });
         
@@ -173,6 +173,13 @@ async function startVote(token, cookies, accountIndex) {
             if (agreeBtn) agreeBtn.click();
         });
         await delay(3000); 
+
+        // === TAMBAHAN KODE DEBUG UNTUK CEK CLOUDFLARE ===
+        const pageTitle = await page.title();
+        const pageTextExcerpt = await page.evaluate(() => document.body.innerText.substring(0, 150).replace(/\n/g, ' '));
+        logInfo(`[DEBUG] Judul Halaman: ${pageTitle}`);
+        logInfo(`[DEBUG] Teks di layar: ${pageTextExcerpt}`);
+        // === BATAS TAMBAHAN ===
 
         const btnData = await page.evaluate(() => {
             const bodyText = document.body.innerText.toLowerCase();
