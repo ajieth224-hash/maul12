@@ -174,7 +174,6 @@ async function startVote(token, cookies, accountIndex) {
         });
         await delay(3000); 
 
-        // === SMART WAIT: LOOP PENCARIAN TOMBOL VOTE ===
         logInfo("Mencari tombol Vote (Menunggu iklan hitung mundur selesai jika ada)...");
         let btnData = { status: "not_found" };
 
@@ -202,19 +201,24 @@ async function startVote(token, cookies, accountIndex) {
             });
 
             if (btnData.status !== "not_found") {
-                break; // Keluar dari loop jika tombol ditemukan atau akun sudah vote
+                break;
             }
 
             logInfo(`[TUNGGU] Iklan masih berjalan, cek lagi dalam 5 detik... (Percobaan ${attempt}/8)`);
-            await delay(5000); // Jeda 5 detik sebelum cek ulang layar
+            await delay(5000); 
         }
-        // === BATAS SMART WAIT ===
 
         if (btnData.status === "found") {
             logInfo("Tombol ditemukan! Melakukan klik mouse nyata...");
             await delay(1500); 
             await page.mouse.click(btnData.x, btnData.y); 
-            await delay(8000); // Tunggu respons server Top.gg setelah klik
+            
+            // === TAMBAHAN: Cek Captcha Kejutan Pasca Klik ===
+            await delay(3000);
+            logInfo("Memeriksa apakah ada Captcha susulan setelah klik...");
+            await solveTurnstile(page);
+            await delay(6000); // Tunggu respons server final
+            // === BATAS TAMBAHAN ===
 
             const isSuccess = await page.evaluate(() => {
                 const text = document.body.innerText.toLowerCase();
@@ -224,7 +228,7 @@ async function startVote(token, cookies, accountIndex) {
             if (isSuccess) {
                 logInfo(`[SUKSES] BERHASIL VOTE! 🎉`);
             } else {
-                logInfo(`[GAGAL] Tombol diklik tapi server menolak vote. (Kemungkinan Anti-Bot)`);
+                logInfo(`[GAGAL] Tombol diklik tapi server menolak vote. (Kemungkinan Anti-Bot / Sesi Mati)`);
             }
 
         } else if (btnData.status === "already") {
@@ -253,7 +257,10 @@ async function runAll() {
             try { formattedCookie = JSON.parse(listCookie[i]); } catch (e) {}
         }
         await startVote(listToken[i], formattedCookie, i);
-        await delay(5000); 
+        
+        // === TAMBAHAN: Jeda antar akun diperlama agar tidak kena Rate Limit ===
+        logInfo(`⏳ Menunggu 45 detik sebelum memproses akun berikutnya agar aman dari deteksi spam...`);
+        await delay(45000); 
     }
     logInfo("Siklus vote selesai. Menunggu jadwal berikutnya...");
 }
