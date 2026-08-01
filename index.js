@@ -1,4 +1,7 @@
-const puppeteer = require('puppeteer'); // Diubah agar otomatis mengunduh Chromium di Render
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
+
 const axios = require('axios');
 const fs = require('fs');
 const express = require('express');
@@ -79,15 +82,15 @@ async function startVote(token, cookies, accountIndex) {
 
     let browser;
     try {
-        // Konfigurasi Puppeteer dioptimalkan untuk Render/Linux Container
         browser = await puppeteer.launch({
             headless: "new",
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox', 
-                '--disable-dev-shm-usage', // Penting untuk mencegah crash kehabisan memori di Render
+                '--disable-dev-shm-usage', 
                 '--disable-gpu', 
-                '--ignore-certificate-errors'
+                '--ignore-certificate-errors',
+                '--disable-blink-features=AutomationControlled' // Ekstra pertahanan stealth
             ]
         });
         
@@ -208,8 +211,6 @@ async function startVote(token, cookies, accountIndex) {
                 logInfo(`[SUKSES] BERHASIL VOTE! 🎉`);
             } else {
                 logInfo(`[GAGAL] Server menolak vote. (Kemungkinan Anti-Bot)`);
-                // Screenshot dinonaktifkan sementara di serverless untuk menghemat memori, 
-                // tapi bisa dinyalakan jika butuh debug mendalam.
             }
 
         } else if (btnData.status === "already") {
@@ -248,7 +249,6 @@ async function runAll() {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Endpoint sederhana agar server tetap menyala dan bisa diping
 app.get('/', (req, res) => {
     res.send('Bot Auto-Vote aktif! Menunggu jadwal eksekusi selanjutnya.');
 });
@@ -256,10 +256,8 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
     logInfo(`Web server menyala di port ${PORT}`);
     
-    // Mengeksekusi script pertama kali saat aplikasi di-deploy / di-restart
     runAll();
 
-    // Penjadwalan Cron: '0 */12 * * *' berarti berjalan setiap jam 00:00 dan 12:00 waktu server.
     cron.schedule('0 */12 * * *', () => {
         logInfo("⏰ Jadwal 12 jam tercapai! Memulai siklus auto-vote...");
         runAll();
